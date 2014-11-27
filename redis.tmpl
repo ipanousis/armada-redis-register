@@ -1,0 +1,113 @@
+#!/usr/bin/python
+
+#jsonStr='{"action":"get","key":"/svc","dir":true,"kvs":[{"key":"/svc/memcache","dir":true,"kvs":[{"key":"/svc/memcache/9c516dcb11b5","value":"172.17.42.1:49268","expiration":"2013-11-19T14:36:19.749631144Z","ttl":5,"modifiedIndex":6}],"modifiedIndex":2},{"key":"/svc/firstbase-authserver","dir":true,"kvs":[{"key":"/svc/firstbase-authserver/d8f517740aa0","value":"172.17.42.1:49269","expiration":"2013-11-19T14:36:17.980095404Z","ttl":3,"modifiedIndex":5}],"modifiedIndex":5}],"modifiedIndex":2}'
+
+
+import json,os,sys,redis,requests,time
+import logging
+import re
+
+if "DEBUG" in os.environ:
+	logging.basicConfig(level=logging.DEBUG)
+
+
+# in a but not b
+def diff(a, b):
+	b = set(b)
+	return [aa for aa in a if aa not in b]
+
+def intersect(a, b):
+	return list(set(a) & set(b))
+
+
+
+class Service:
+
+  def __init__(self, id, host, instance):
+    self.id = id
+    self.host = host
+    self.instance = instance
+
+
+def updateProxy(svc, rs):
+  key = "frontend:" + svc.host
+
+  if not rs.exists(key):
+    rs.rpush(key, svc.id)
+
+  rs.expire(key, 60)
+
+  existing = rs.lrange(key, 0, -1)
+
+  current = [svc.instance]
+  current.insert(0, svc.id)
+
+  toDelete = diff(existing, current)
+  toAdd = diff(current, existing)
+
+  for val in toDelete:
+    logging.info("D "+key+" "+val)
+    rs.lrem(key, val)
+
+  for val in toAdd:
+    logging.info("A "+key+" "+val)
+    rs.rpushx(key, val)	
+
+
+#redisAdd = os.environ['REDIS'].split(":")
+
+#rs = redis.Redis(redisAdd[0], int(redisAdd[1]))
+
+#obj = requests.get("http://"+os.environ['ETCD']+"/v2/keys/backends/?recursive=true").json()
+
+#backends = obj['node']['nodes']
+
+backends = {
+{{range gets "/backends/*/*"}}
+    "{{.Key}}" : {{.Value}},
+{{end}}
+    None:None
+}
+
+del backends[None]
+
+print 'Total backends: %d' % len(backends.keys())
+
+rs = redis.Redis('flocker.kalamia.in', 6379)
+
+for svc_key in backends.keys():
+  parts = svc_key.split("/")
+
+  ident = parts[2:4]
+
+  svc = backends[svc_key]
+
+  if not 'flocker--' in svc['name']:
+    continue
+
+  svc_name = svc['name'].replace('flocker--','')
+
+  external_ports = [port['external'] for port in svc['ports'] if port['external'] != None]
+  if len(external_ports) == 1:
+    redis_svc_name = svc_name
+
+    redis_svc = Service(redis_svc_name, redis_svc_name + '.flocker.kalamia.in', 'http://flocker.kalamia.in:' + external_ports[0] )
+ 
+    print 'Redis Entry: (id, host, instance) = (%s, %s, %s)' % (redis_svc.id, redis_svc.host, redis_svc.instance)
+
+    updateProxy(redis_svc, rs)
+
+
+  for port in svc['ports']:
+    if port['external'] == None:
+      continue
+
+    redis_svc_name = port['internal'] + '.' + svc_name
+
+    redis_svc = Service(redis_svc_name, redis_svc_name + '.flocker.kalamia.in', 'http://flocker.kalamia.in:' + port['external'] )
+  
+    print 'Redis Entry: (id, host, instance) = (%s, %s, %s)' % (redis_svc.id, redis_svc.host, redis_svc.instance)
+
+    updateProxy(redis_svc, rs)
+
+logging.info("exiting...")
