@@ -35,7 +35,7 @@ def updateProxy(svc, rs):
   if not rs.exists(key):
     rs.rpush(key, svc.id)
 
-  rs.expire(key, 60)
+  rs.expire(key, 15)
 
   existing = rs.lrange(key, 0, -1)
 
