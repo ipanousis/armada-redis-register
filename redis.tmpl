@@ -101,7 +101,7 @@ backends.append(running_container)
 
 {{end}}
 
-print 'Total backends: %d' % len(backends.keys())
+print 'Total backends: %d' % len(backends)
 
 redis_host_port = os.environ['REDIS_HOST'].split(':')
 redis_port = (int(redis_host_port[1]) if len(redis_host_port) == 2 else 6379)
