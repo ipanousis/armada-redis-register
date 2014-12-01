@@ -85,12 +85,12 @@ running_container = {
 
 #running_container['addresses'] = "[{172.17.0.3 2379 } {172.17.0.3 2380 } {172.17.0.3 4001 4001} {172.17.0.3 7001 }]"
 address_string = running_container['addresses'].replace('} {','},{').replace('{','"').replace('}','"')
-address_list = [item.strip().split(' ') for item in eval(address_string)]
+address_list = [re.sub(' +',' ',item.strip()).split(' ') for item in eval(address_string)]
 port_dicts = []
 for item in address_list:
   parts_no = len(item)
   internal_port, host_port = item[1], None
-  if parts_no == 3:
+  if parts_no > 3:
     host_port = item[2]
   port_dicts.append({'internal':internal_port, 'external':host_port})
 
