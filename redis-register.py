@@ -1,12 +1,10 @@
 #!/usr/bin/python
 
-import json,os,sys,redis,requests,time
+import json,os,sys,redis,time
 import logging
 import re
 
-if "DEBUG" in os.environ:
-	logging.basicConfig(level=logging.DEBUG)
-
+logging.basicConfig(level=logging.DEBUG,filename='/tmp/redis-register.log')
 
 CLUSTER_NAME=os.environ['FLOCKER_DOMAIN']
 
@@ -61,44 +59,7 @@ def updateProxy(svc, rs):
 
 #backends = obj['node']['nodes']
 
-backends = []
-
-{{ $local := . }}
-{{range $key, $value := .}}
-
-# {{ $value.Name }}
-{{ $tag := "latest" }}
-{{ if $value.Image.Tag }}
-{{ $tag := $value.Image.Tag }}
-{{end}}
-
-running_container = {
-                      "host"       : "{{ $local.Env.HOST_IP }}",
-                      "container_id" : "{{ printf "%.*s" 24 $value.ID }}",
-                      "name"       : "{{ $value.Name }}",
-                      "registry"   : "{{ $value.Image.Registry }}",
-                      "repository" : "{{ $value.Image.Repository }}",
-                      "tag"        : "{{ $tag }}",
-                      "addresses"  : "{{ $value.Addresses }}"
-                    }
-
-#running_container['addresses'] = "[{172.17.0.3 2379 } {172.17.0.3 2380 } {172.17.0.3 4001 4001} {172.17.0.3 7001 }]"
-address_string = running_container['addresses'].replace('} {','},{').replace('{','"').replace('}','"')
-address_list = [re.sub(' +',' ',item.strip()).split(' ') for item in eval(address_string)]
-port_dicts = []
-for item in address_list:
-  parts_no = len(item)
-  internal_port, host_port = item[1], None
-  if parts_no > 3:
-    host_port = item[2]
-  port_dicts.append({'internal':internal_port, 'external':host_port})
-
-del running_container['addresses']
-running_container['ports'] = port_dicts
-
-backends.append(running_container)
-
-{{end}}
+backends = json.loads(open('/tmp/containers.json','r').read())['containers']
 
 print 'Total backends: %d' % len(backends)
 
@@ -106,9 +67,11 @@ redis_host_port = os.environ['REDIS_HOST'].split(':')
 redis_port = (int(redis_host_port[1]) if len(redis_host_port) == 2 else 6379)
 rs = redis.Redis(redis_host_port[0], redis_port)
 
-get_port_protocol = lambda port : 'https' if port == 443 else 'http'
+get_port_protocol = lambda port : 'https' if int(port) == 443 else 'http'
 
 for svc in backends:
+
+  logging.info(svc)
 
   if not 'flocker--' in svc['name']:
     continue
@@ -125,7 +88,7 @@ for svc in backends:
 
   for exposed_port in exposed_ports:
     redis_svc_name = exposed_port['internal'] + '.' + svc_name
-    redis_svc = Service(redis_svc_name, redis_svc_name + '.' + CLUSTER_NAME, get_port_protocol(exposed_port['internal'] + '://' + CLUSTER_NAME + ':' + exposed_port['external'] )
+    redis_svc = Service(redis_svc_name, redis_svc_name + '.' + CLUSTER_NAME, get_port_protocol(exposed_port['internal']) + '://' + CLUSTER_NAME + ':' + exposed_port['external'] )
     print 'Redis Entry: (id, host, instance) = (%s, %s, %s)' % (redis_svc.id, redis_svc.host, redis_svc.instance)
     updateProxy(redis_svc, rs)
 
