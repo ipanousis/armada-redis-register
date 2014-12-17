@@ -4,6 +4,8 @@ import json,os,sys,redis,time
 import logging
 import re
 
+from ConfigParser import ConfigParser
+
 logging.basicConfig(level=logging.DEBUG,filename='/tmp/redis-register.log')
 
 CLUSTER_NAME=os.environ['FLOCKER_DOMAIN']
@@ -51,23 +53,31 @@ def updateProxy(svc, rs):
     rs.rpushx(key, val)	
 
 
-#redisAdd = os.environ['REDIS'].split(":")
-
-#rs = redis.Redis(redisAdd[0], int(redisAdd[1]))
-
-#obj = requests.get("http://"+os.environ['ETCD']+"/v2/keys/backends/?recursive=true").json()
-
-#backends = obj['node']['nodes']
-
 backends = json.loads(open('/tmp/containers.json','r').read())['containers']
-
-print 'Total backends: %d' % len(backends)
 
 redis_host_port = os.environ['REDIS_HOST'].split(':')
 redis_port = (int(redis_host_port[1]) if len(redis_host_port) == 2 else 6379)
 rs = redis.Redis(redis_host_port[0], redis_port)
 
-get_port_protocol = lambda port : 'https' if int(port) == 443 else 'http'
+REDIS_REGISTER_PROPERTIES='/etc/redis-register/redis-register.properties'
+redirect_https_enabled = false
+redirect_https_host = None
+if os.path.exists(REDIS_REGISTER_PROPERTIES):
+  properties = ConfigParser()
+  properties.readfp(open(REDIS_REGISTER_PROPERTIES,'r'))
+  redirect_https_enabled = properties.getboolean('redirect-https', 'enabled')
+  redirect_https_host = properties.get('redirect-https', 'host')
+
+def new_service(svc_name, exposed_port):
+  def is_https(port):
+    return int(port) == 443
+  protocol = 'http'
+  url = 'http://' + CLUSTER_NAME + ':' + exposed_port['external']
+  if is_https(exposed_port['internal']) and redirect_https_enabled:
+    url = 'http://' + redirect_https_host + '/' + svc_name
+  redis_svc = Service(svc_name, svc_name + '.' + CLUSTER_NAME, url)
+  print 'Redis Entry: (id, host, instance) = (%s, %s, %s)' % (redis_svc.id, redis_svc.host, redis_svc.instance)
+  return redis_svc
 
 for svc in backends:
 
@@ -81,15 +91,10 @@ for svc in backends:
   exposed_ports = [port for port in svc['ports'] if port['external'] != None]
   if len(exposed_ports) > 0:
     exposed_port = exposed_ports[0]
-    redis_svc = Service(svc_name, svc_name + '.' + CLUSTER_NAME, get_port_protocol(exposed_port['internal']) + '://' + CLUSTER_NAME + ':' + exposed_port['external'] )
-    print 'Redis Entry: (id, host, instance) = (%s, %s, %s)' % (redis_svc.id, redis_svc.host, redis_svc.instance)
-    updateProxy(redis_svc, rs)
-
+    updateProxy(new_service(svc_name, exposed_port), rs)
 
   for exposed_port in exposed_ports:
     redis_svc_name = exposed_port['internal'] + '.' + svc_name
-    redis_svc = Service(redis_svc_name, redis_svc_name + '.' + CLUSTER_NAME, get_port_protocol(exposed_port['internal']) + '://' + CLUSTER_NAME + ':' + exposed_port['external'] )
-    print 'Redis Entry: (id, host, instance) = (%s, %s, %s)' % (redis_svc.id, redis_svc.host, redis_svc.instance)
-    updateProxy(redis_svc, rs)
+    updateProxy(new_service(redis_svc_name, exposed_port), rs)
 
 logging.info("exiting...")
