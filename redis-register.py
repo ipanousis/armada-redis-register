@@ -60,7 +60,7 @@ redis_port = (int(redis_host_port[1]) if len(redis_host_port) == 2 else 6379)
 rs = redis.Redis(redis_host_port[0], redis_port)
 
 REDIS_REGISTER_PROPERTIES='/etc/redis-register/redis-register.properties'
-redirect_https_enabled = false
+redirect_https_enabled = False
 redirect_https_host = None
 if os.path.exists(REDIS_REGISTER_PROPERTIES):
   properties = ConfigParser()
