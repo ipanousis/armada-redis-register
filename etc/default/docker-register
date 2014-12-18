@@ -1,0 +1,2 @@
+NOTIFY="python /redis-register.py"
+INTERVAL=10
