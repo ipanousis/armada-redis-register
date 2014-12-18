@@ -1,6 +1,6 @@
 #!/usr/bin/python
 
-import json,os,sys,redis,time
+import json,os,sys,redis,time,yaml
 import logging
 import re
 
@@ -52,8 +52,8 @@ def updateProxy(svc, rs):
     logging.info("A "+key+" "+val)
     rs.rpushx(key, val)	
 
-
-backends = json.loads(open('/tmp/containers.json','r').read())['containers']
+containers_string = open('/tmp/containers.json','r').read()
+backends = yaml.load(containers_string)['containers']
 
 redis_host_port = os.environ['REDIS_HOST'].split(':')
 redis_port = (int(redis_host_port[1]) if len(redis_host_port) == 2 else 6379)
